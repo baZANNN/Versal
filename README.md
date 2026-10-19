@@ -1,5 +1,7 @@
 # Versal
 
+**Spotify-connected lyrics, made for the screen you're on.**
+
 Versal follows the song playing on your Spotify account and displays its lyrics
 with a large, centered active line. Previous and upcoming lines provide context;
 fonts, colors, visibility modes, and the active underline are customizable and
@@ -9,10 +11,50 @@ It uses Spotify for playback metadata and LRCLIB for lyrics. It works with music
 playing on Spotify devices, including a vehicle's native Spotify integration.
 Untimed lyrics are shown as readable text when line timing is unavailable.
 
+![Versal's centered active lyric with previous and upcoming lines in the Road lime theme](docs/images/versal-lyrics.jpg)
+
+## What Versal offers
+
+- **Follow the music:** automatic song tracking, line activation, and a manual
+  re-sync control when needed.
+- **Keep the words in view:** a fixed lyric frame, a large centered active line,
+  and readable previous/upcoming context.
+- **Make it yours:** five typefaces, six accent palettes, three lyric sizes,
+  three active-line zoom levels, and an optional underline. Preferences persist.
+- **Match the lighting:** Night, Balanced, and Daylight visibility modes, with
+  the background and lyric emphasis following the selected theme.
+- **Handle untimed songs honestly:** a readable lyric view with an explicit
+  timing-unavailable label when line timestamps are missing.
+- **Keep requests bounded:** cached lyrics, cancelled stale lookups, provider
+  cooldown handling, and coordinated playback polling across visible tabs.
+
+### A closer look
+
+| Display options | Daylight visibility |
+| --- | --- |
+| ![Display menu with typeface, size, zoom, underline, visibility, and palette controls](docs/images/versal-display-options.jpg) | ![Daylight visibility with the Sky blue palette and high-contrast lyric text](docs/images/versal-daylight.jpg) |
+| Customize the lyric presentation without changing playback. | A crisp, higher-contrast treatment for brighter conditions. |
+
+| Night visibility | Untimed lyrics |
+| --- | --- |
+| ![Night visibility with the Editorial typeface, violet palette, and underline hidden](docs/images/versal-night.jpg) | ![Untimed lyrics in the Mono typeface with the timing-unavailable label below song details](docs/images/versal-untimed.jpg) |
+| A darker palette, a different typeface, and no active-line underline. | Plain lyrics remain readable without fabricated synchronization. |
+
+These are static renders of the real app components, using invented song details
+and original demonstration text—not live playback captures or Tesla photographs.
+See [how the renders are made](docs/images/README.md). Versal has also been
+confirmed working in a Tesla browser; vehicle layouts and lighting still vary.
+Passengers can enjoy the lyrics; drivers should change settings only while parked.
+
+## How it works
+
 Lyrics load directly from LRCLIB's public browser API, with cookies and credentials
 omitted. Spotify authentication and playback access remain server-side. The same
 cache, matching, and cooldown protections apply; a failed direct request never
 silently switches to a proxy to evade a provider wait.
+
+Versal displays the music already playing through Spotify; it does not replace
+Spotify's audio player. No Tesla API connection is required.
 
 ## Run your own copy
 
