@@ -3,6 +3,7 @@
 import { useRef, useState, type RefObject } from "react";
 import { parseLyrics, normalizeTrackTitle, selectLyricsRecord, type LyricLine } from "../lib/lyrics";
 import { LyricsRequests, LyricsRequestError } from "../lib/lyrics-request";
+import { createBrowserLyricsFetcher } from "../lib/lrclib-browser";
 import type { LyricsStatus } from "../lib/client-types";
 import { LYRICS_COOLDOWN_KEY, LYRICS_RETRY_DELAY_MS, LYRICS_MAX_AUTOMATIC_RETRIES, LYRICS_MAX_PROVIDER_RETRIES } from "../lib/client-config";
 
@@ -53,7 +54,7 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
     setLines([]);
     updateLyricsStatus("loading");
     if (!lyricsRequestsRef.current) {
-      lyricsRequestsRef.current = new LyricsRequests(fetch, Date.now, () => {
+      lyricsRequestsRef.current = new LyricsRequests(createBrowserLyricsFetcher(), Date.now, () => {
         try {
           const value = Number(window.localStorage.getItem(LYRICS_COOLDOWN_KEY));
           return Number.isFinite(value) ? value : 0;
@@ -122,4 +123,3 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
     cancelLyrics,
   };
 }
-

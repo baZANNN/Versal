@@ -35,6 +35,7 @@ export function harness(fetcher, { page = "../app/page.tsx", storageEntries = []
   const document = { hidden: false, addEventListener: browser.addEventListener, removeEventListener: browser.removeEventListener };
   const { default: Home } = loadTypeScript(page, { react: hooks }, {
     fetch: fetcher, window: browser, document, navigator: { onLine: true },
+    setTimeout: browser.setTimeout,
     performance: { now: () => now }, Date: class extends Date { static now() { return now; } },
   });
   // Expand extracted presentational components without introducing another effect owner.

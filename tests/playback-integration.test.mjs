@@ -4,15 +4,16 @@ import { harness } from "./playback-harness.mjs";
 
 const playback = (id, playing = true, positionMs = 0) => ({ connected: true, playing, positionMs,
   item: { id, type: "track", title: id, artist: "Artist", artists: ["Artist"], collection: "Album", durationMs: 200_000 } });
-const lyrics = (title) => [{ id: 1, trackName: title, artistName: "Artist", albumName: "Album", duration: 200,
-  instrumental: false, syncedLyrics: `[00:01]${title} first lyric\n[00:04]${title} second lyric`, plainLyrics: null }];
+// Raw LRCLIB /get payloads: these exercise the real browser adapter, not a proxy mock.
+const lyrics = (title) => ({ id: 1, trackName: title, artistName: "Artist", albumName: "Album", duration: 200,
+  instrumental: false, syncedLyrics: `[00:01]${title} first lyric\n[00:04]${title} second lyric`, plainLyrics: null });
 
 test("untimed lyrics keep their label below song details and outside the scroll region", async () => {
   let song = "Untimed";
   const app = harness(async (url) => {
     if (url === "/api/spotify/now-playing") return Response.json(playback(song));
     const records = lyrics(song);
-    if (song === "Untimed") Object.assign(records[0], { syncedLyrics: null, plainLyrics: "First untimed line\nLast untimed line" });
+    if (song === "Untimed") Object.assign(records, { syncedLyrics: null, plainLyrics: "First untimed line\nLast untimed line" });
     return Response.json(records);
   });
   try {
@@ -115,13 +116,14 @@ test("confirmed missing lyrics are not automatically fetched again on playback t
   const app = harness(async (url) => {
     if (url === "/api/spotify/now-playing") return Response.json(playback("Missing"));
     calls++;
-    return Response.json([]);
+    return new URL(url).pathname.endsWith("/get") ? new Response(null, { status: 404 }) : Response.json([]);
   });
   try {
     await app.advance(0);
+    await app.advance(300);
     assert.match(app.text(), /No lyrics found/);
     await app.advance(60_000);
-    assert.equal(calls, 1);
+    assert.equal(calls, 2, "one exact request and one structured search, with no repeat loop");
   } finally { app.cleanup(); }
 });
 
@@ -129,7 +131,7 @@ test("a late previous-song lookup cannot replace the current song's lyrics", asy
   let song = "Alpha", finishAlpha;
   const app = harness(async (url) => {
     if (url === "/api/spotify/now-playing") return Response.json(playback(song));
-    const title = new URL(url, "http://test").searchParams.get("track");
+    const title = new URL(url).searchParams.get("track_name");
     return title === "Alpha" ? new Promise((resolve) => { finishAlpha = resolve; }) : Response.json(lyrics(title));
   });
   try {
@@ -165,11 +167,11 @@ test("returning to the same track cannot revive a superseded lookup", async () =
   let media = playback("Alpha"), finishOld;
   const app = harness(async (url) => {
     if (url === "/api/spotify/now-playing") return Response.json(media);
-    const params = new URL(url, "http://test").searchParams;
-    if (params.get("track") === "Alpha" && params.get("album") === "Album") {
+    const params = new URL(url).searchParams;
+    if (params.get("track_name") === "Alpha" && params.get("album_name") === "Album") {
       return new Promise((resolve) => { finishOld = resolve; });
     }
-    return Response.json(lyrics(params.get("track")));
+    return Response.json(lyrics(params.get("track_name")));
   });
   try {
     await app.advance(0);
@@ -254,7 +256,7 @@ test("a song change aborts the superseded browser lyric request", async () => {
   let song = "Alpha", signal;
   const app = harness(async (url, options) => {
     if (url === "/api/spotify/now-playing") return Response.json(playback(song));
-    if (new URL(url, "http://test").searchParams.get("track") === "Alpha") {
+    if (new URL(url).searchParams.get("track_name") === "Alpha") {
       signal = options.signal;
       return new Promise(() => {});
     }
@@ -269,4 +271,3 @@ test("a song change aborts the superseded browser lyric request", async () => {
     assert.match(app.text(), /Beta first lyric/);
   } finally { app.cleanup(); }
 });
-

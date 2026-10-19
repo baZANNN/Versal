@@ -31,6 +31,7 @@ export class LyricsRequests {
   private cache = new Map<string, Entry>();
   private cooldown = 0;
   private cooldownStatus = 429;
+  private missingDeadlineCount = 0;
   constructor(
     private fetcher: typeof fetch = fetch,
     private now = Date.now,
@@ -53,14 +54,17 @@ export class LyricsRequests {
       .then(async (response) => {
         const retryAt = lyricsRetryDeadline(response.headers.get("Retry-After"), this.now());
         if (response.status === 429 || (response.status === 503 && retryAt !== null)) {
-          // The server already owns backoff. Never multiply its remaining wait.
+          // Preserve the provider/proxy deadline; the hook owns bounded retries.
           const now = this.now();
           this.cooldownStatus = response.status;
-          this.cooldown = Math.max(this.cooldown, retryAt ?? now + 30_000);
+          const deadline = retryAt ?? now + Math.min(300_000, 30_000 * 2 ** Math.min(this.missingDeadlineCount++, 4));
+          if (retryAt !== null) this.missingDeadlineCount = 0;
+          this.cooldown = Math.max(this.cooldown, this.readCooldown(), deadline);
           this.writeCooldown(this.cooldown);
           throw new LyricsRequestError(response.status, this.cooldown);
         }
         if (!response.ok) throw new LyricsRequestError(response.status);
+        this.missingDeadlineCount = 0;
         const records: unknown = await response.json();
         if (!Array.isArray(records)) throw new LyricsRequestError(502);
         entry.expiresAt = this.now() + (records.length ? 30 * 60_000 : 5 * 60_000);
@@ -78,4 +82,3 @@ export class LyricsRequests {
     return entry.promise;
   }
 }
-

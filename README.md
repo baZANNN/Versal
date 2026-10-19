@@ -9,6 +9,11 @@ It uses Spotify for playback metadata and LRCLIB for lyrics. It works with music
 playing on Spotify devices, including a vehicle's native Spotify integration.
 Untimed lyrics are shown as readable text when line timing is unavailable.
 
+Lyrics load directly from LRCLIB's public browser API, with cookies and credentials
+omitted. Spotify authentication and playback access remain server-side. The same
+cache, matching, and cooldown protections apply; a failed direct request never
+silently switches to a proxy to evade a provider wait.
+
 ## Run your own copy
 
 Use Node.js 22.13 or newer:
@@ -77,6 +82,7 @@ Start with [app/page.tsx](app/page.tsx), which composes the interface.
 | --- | --- |
 | Playback polling, tab leadership, cooldowns, re-sync | [use-spotify-playback.ts](app/hooks/use-spotify-playback.ts) |
 | Lyric lookup, retries, stale-response guards | [use-lyrics-loader.ts](app/hooks/use-lyrics-loader.ts) |
+| Direct browser lyric transport, shared provider matching | [lrclib-browser.ts](app/lib/lrclib-browser.ts), [lrclib-lookup.ts](app/lib/lrclib-lookup.ts) |
 | Saved display choices | [use-display-preferences.ts](app/hooks/use-display-preferences.ts) |
 | Centered active line, context, untimed lyrics | [lyrics-player.tsx](app/components/lyrics-player.tsx) |
 | Timing, display choices, stable storage keys | [client-config.ts](app/lib/client-config.ts) |
@@ -105,10 +111,11 @@ npm run typecheck:client
 npm test
 ```
 
-`npm test` builds the Worker and runs 47 tests with synthetic lyrics, mocked
+`npm test` builds the Worker and runs 58 tests with synthetic lyrics, mocked
 requests, and a fake clock. It covers parsing, matching, cooldowns, stale song
 responses, pauses, podcasts, saved settings, cleanup, and the rendered application
-shell without consuming Spotify quota.
+shell without consuming Spotify quota. Direct-transport tests also verify
+credential isolation, cancellation, cache reuse, and provider cooldown handling.
 
 The client typecheck covers the page, hooks, components, and imported libraries.
 It is not a complete Worker/server typecheck. Real audio alignment and vehicle

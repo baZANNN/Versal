@@ -1,56 +1,7 @@
-import { selectLyricsRecord } from "./lyrics";
+import { lookupLrclib, type LyricsQuery as Query } from "./lrclib-lookup";
 import { lyricsRetryDeadline } from "./lyrics-request";
 
-type Query = { track: string; artist: string; album: string; duration: number; query?: string };
-type Wait = (milliseconds: number) => Promise<void>;
-const wait: Wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
-// Each fallback is tried at most once. A throttle or outage ends the sequence immediately.
-export async function lookupLrclib(query: Query, fetcher: typeof fetch = fetch, pause: Wait = wait) {
-  const signal = AbortSignal.timeout(15_000);
-  const request = (path: string, parameters: Record<string, string>) => {
-    const url = new URL(`https://lrclib.net/api/${path}`);
-    for (const [key, value] of Object.entries(parameters)) if (value) url.searchParams.set(key, value);
-    return fetcher(url, { signal, headers: { "User-Agent": "Versal/1.4 (https://github.com/baZANNN/Versal)", "Lrclib-Client": "Versal/1.4", Accept: "application/json" } });
-  };
-  const result = (records: unknown[]) => Response.json(records.slice(0, 20), {
-    headers: { "Cache-Control": records.length ? "private, max-age=300" : "no-store" },
-  });
-  const failure = (response: Response) => Response.json({ error: "Lyrics provider is temporarily unavailable." }, {
-    status: response.status === 429 || response.status === 503 ? response.status : 502,
-    headers: {
-      ...(response.headers.has("Retry-After") ? { "Retry-After": response.headers.get("Retry-After")! } : {}),
-      "X-Lyrics-Upstream-Status": String(response.status), "Cache-Control": "no-store",
-    },
-  });
-  try {
-    if (query.track && query.artist) {
-      const exact = await request("get", {
-        track_name: query.track, artist_name: query.artist, album_name: query.album,
-        duration: Number.isFinite(query.duration) && query.duration > 0 ? String(query.duration) : "",
-      });
-      if (exact.ok) {
-        const record = selectLyricsRecord([await exact.json()], query.track, [query.artist], query.album, query.duration);
-        if (record) return result([record]);
-      } else if (exact.status !== 404) return failure(exact);
-      // LRCLIB asks clients to leave 200–500 ms between sequential requests.
-      await pause(300);
-      const structured = await request("search", { track_name: query.track, artist_name: query.artist });
-      if (!structured.ok) return failure(structured);
-      const matches: unknown = await structured.json();
-      if (!Array.isArray(matches)) throw new Error("Invalid lyrics response");
-      const record = selectLyricsRecord(matches, query.track, [query.artist], query.album, query.duration);
-      return result(record ? [record] : []);
-    }
-    const broad = await request("search", { q: query.track && query.artist ? `${query.track} ${query.artist}` : query.query || "" });
-    if (!broad.ok) return failure(broad);
-    const matches: unknown = await broad.json();
-    if (!Array.isArray(matches)) throw new Error("Invalid lyrics response");
-    return result(matches);
-  } catch {
-    return Response.json({ error: "Lyrics provider is temporarily unavailable." }, { status: 502, headers: { "Cache-Control": "no-store" } });
-  }
-}
+export { lookupLrclib } from "./lrclib-lookup";
 
 type LookupResult = { body: string; status: number; headers: Record<string, string> };
 
@@ -124,4 +75,3 @@ export class LrclibService {
     return new Response(result.body, { status: result.status, headers: result.headers });
   }
 }
-
