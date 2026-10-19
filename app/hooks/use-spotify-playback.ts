@@ -55,7 +55,6 @@ export function useSpotifyPlayback() {
     lines,
     lyricsStatus,
     lyricsRetryAt,
-    lyricsRetryRemainingSeconds,
     lyricsStatusRef,
     loadSpotifyLyrics,
     clearLyrics,
@@ -503,11 +502,9 @@ export function useSpotifyPlayback() {
       ? spotifyCooldownDetail || "Versal is honoring Spotify's cooldown and will retry automatically."
       : "Versal will keep your lyrics in place and retry automatically.";
   const lyricsLookupPending = !!track.title && ["loading", "cooldown", "unavailable"].includes(lyricsStatus);
-  const lyricsLookupCopy = lyricsStatus === "loading" ? "Finding lyrics…"
-    : lyricsRetryAt > 0 ? (lyricsRetryRemainingSeconds > 0 ? `Retrying in ${lyricsRetryRemainingSeconds} seconds…` : "Waiting to retry…")
-    : "Lyrics temporarily unavailable. Tap ↻ to retry.";
-  const lyricsLookupAnnouncement = lyricsStatus === "loading" ? "Finding lyrics"
-    : lyricsRetryAt > 0 ? "Lyrics will retry automatically" : "Lyrics temporarily unavailable";
+  const lyricsLookupActive = lyricsStatus === "loading" || lyricsRetryAt > 0;
+  const lyricsLookupCopy = lyricsLookupActive ? "Finding lyrics…" : "Lyrics temporarily unavailable. Tap ↻ to retry.";
+  const lyricsLookupAnnouncement = lyricsLookupActive ? "Finding lyrics" : "Lyrics temporarily unavailable";
 
   return {
     track,

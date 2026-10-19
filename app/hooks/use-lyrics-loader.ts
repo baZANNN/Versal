@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useRef, useState, type RefObject } from "react";
 import { parseLyrics, normalizeTrackTitle, selectLyricsRecord, type LyricLine } from "../lib/lyrics";
 import { LyricsRequests, LyricsRequestError } from "../lib/lyrics-request";
 import type { LyricsStatus } from "../lib/client-types";
@@ -12,31 +12,16 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
   const [lines, setLines] = useState<LyricLine[]>([]);
   const [lyricsStatus, setLyricsStatus] = useState<LyricsStatus>("idle");
   const [lyricsRetryAt, setLyricsRetryAt] = useState(0);
-  const [lyricsRetryRemainingSeconds, setLyricsRetryRemainingSeconds] = useState(0);
   const lyricsRequestsRef = useRef<LyricsRequests | null>(null);
   const lyricsGenerationRef = useRef(0);
   const lyricsStatusRef = useRef<LyricsStatus>("idle");
   const lyricsRetryTimerRef = useRef(0);
   const lyricsRequestRef = useRef<AbortController | null>(null);
 
-  // Display-only clock. The existing retry scheduler remains the sole owner
-  // of network timing, including hidden/offline and persisted cooldown checks.
-  useEffect(() => {
-    if (!lyricsRetryAt) {
-      setLyricsRetryRemainingSeconds(0);
-      return;
-    }
-    const updateCountdown = () => setLyricsRetryRemainingSeconds(Math.max(0, Math.ceil((lyricsRetryAt - Date.now()) / 1_000)));
-    updateCountdown();
-    const timer = window.setInterval(updateCountdown, 1_000);
-    return () => window.clearInterval(timer);
-  }, [lyricsRetryAt]);
-
   function updateLyricsStatus(status: LyricsStatus) {
     lyricsStatusRef.current = status;
     setLyricsStatus(status);
     setLyricsRetryAt(0);
-    setLyricsRetryRemainingSeconds(0);
   }
 
   function cancelLyrics() {
@@ -111,7 +96,6 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
         const retryDelay = coolingDown ? Math.min(16_000, 1_000 * 2 ** retryAttempt) : LYRICS_RETRY_DELAY_MS;
         const retryAt = Math.max(Date.now() + retryDelay, coolingDown ? error.retryAt : 0);
         setLyricsRetryAt(retryAt);
-        setLyricsRetryRemainingSeconds(Math.max(0, Math.ceil((retryAt - Date.now()) / 1_000)));
         const retry = () => {
           if (!isCurrent()) return;
           if (document.hidden || !navigator.onLine || Date.now() < retryAt) {
@@ -132,7 +116,6 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
     lines,
     lyricsStatus,
     lyricsRetryAt,
-    lyricsRetryRemainingSeconds,
     lyricsStatusRef,
     loadSpotifyLyrics,
     clearLyrics,

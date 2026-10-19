@@ -39,7 +39,7 @@ test("lyrics recover automatically after multiple provider cooldowns", async () 
   });
   try {
     await app.advance(0);
-    assert.match(app.text(), /Retrying in 2 seconds/);
+    assert.match(app.text(), /Finding lyrics/);
     await app.advance(1_999);
     assert.equal(calls, 1);
     await app.advance(1);
@@ -48,12 +48,12 @@ test("lyrics recover automatically after multiple provider cooldowns", async () 
     assert.equal(calls, 2);
     await app.advance(1);
     assert.equal(calls, 3);
-    assert.doesNotMatch(app.text(), /Retrying in/);
+    assert.doesNotMatch(app.text(), /Finding lyrics/);
     assert.match(app.text(), /Song first lyric/);
   } finally { app.cleanup(); }
 });
 
-test("lookup, countdown, and retry keep the same quiet panel below song details", async () => {
+test("lookup, cooldown, and retry keep the same Finding lyrics panel below song details", async () => {
   let calls = 0, finish;
   const app = harness(async (url) => {
     if (url === "/api/spotify/now-playing") return Response.json(playback("Song"));
@@ -71,17 +71,17 @@ test("lookup, countdown, and retry keep the same quiet panel below song details"
     assert.deepEqual(structure(), ["track-info", "lyrics-lookup-panel"]);
     finish(new Response(null, { status: 429, headers: { "Retry-After": "3" } }));
     await app.resolve();
-    assert.match(app.text(panel()), /Retrying in 3 seconds/);
+    assert.match(app.text(panel()), /Finding lyrics/);
     const announcement = app.find((node) => node.props?.className === "lyrics-lookup-status").props["aria-label"];
     await app.advance(1_000);
-    assert.match(app.text(panel()), /Retrying in 2 seconds/);
-    assert.equal(app.find((node) => node.props?.className === "lyrics-lookup-status").props["aria-label"], announcement, "screen readers are not asked to announce every second");
-    assert.equal(calls, 1, "display countdown sends no requests");
+    assert.match(app.text(panel()), /Finding lyrics/);
+    assert.equal(app.find((node) => node.props?.className === "lyrics-lookup-status").props["aria-label"], announcement, "the status announcement stays stable during a cooldown");
+    assert.equal(calls, 1, "the stable loading state sends no requests");
     await app.advance(2_000);
     assert.equal(calls, 2);
     assert.match(app.text(panel()), /Finding lyrics/);
     assert.deepEqual(structure(), ["track-info", "lyrics-lookup-panel"]);
-    assert.doesNotMatch(app.text(), /MATCHING LYRICS|Waiting for the lyrics service|LYRICS SERVICE COOLING DOWN/);
+    assert.doesNotMatch(app.text(), /MATCHING LYRICS|Waiting for the lyrics service|LYRICS SERVICE COOLING DOWN|Retrying in|Waiting to retry/);
     finish(Response.json(lyrics("Song")));
     await app.resolve();
     assert.equal(panel(), undefined);
@@ -89,7 +89,7 @@ test("lookup, countdown, and retry keep the same quiet panel below song details"
   } finally { app.cleanup(); }
 });
 
-test("an expired countdown waits quietly while hidden and never shows negative seconds", async () => {
+test("an expired retry stays on Finding lyrics while hidden until requests can resume", async () => {
   let calls = 0;
   const app = harness(async (url) => {
     if (url === "/api/spotify/now-playing") return Response.json(playback("Song"));
@@ -101,8 +101,8 @@ test("an expired countdown waits quietly while hidden and never shows negative s
     await app.hidden(true);
     await app.advance(3_000);
     assert.equal(calls, 1);
-    assert.match(app.text(), /Waiting to retry/);
-    assert.doesNotMatch(app.text(), /Retrying in -/);
+    assert.match(app.text(), /Finding lyrics/);
+    assert.doesNotMatch(app.text(), /Retrying in|Waiting to retry/);
     await app.hidden(false);
     await app.advance(1_000);
     assert.equal(calls, 2);
@@ -241,7 +241,7 @@ test("a transient 503 recovers only after its provider deadline", async () => {
   });
   try {
     await app.advance(0);
-    assert.match(app.text(), /Retrying in 60 seconds/);
+    assert.match(app.text(), /Finding lyrics/);
     await app.advance(59_999);
     assert.equal(calls, 1);
     await app.advance(1);

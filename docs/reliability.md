@@ -25,10 +25,11 @@ of the playback and lookup helpers. This reliability pass does not change CSS.
 
 ## Lyrics
 
-- Lookup and cooldown share one stable status slot below the song metadata.
-  The countdown is display-only: it does not initiate requests or alter retry
-  deadlines. At expiry while hidden/offline it says "Waiting to retry" until
-  the existing scheduler can proceed. Active lyrics and their layout are unchanged.
+- Lookup, cooldown, and automatic retries share one stable "Finding lyrics…"
+  status below the song metadata. Retry deadlines and hidden/offline checks stay
+  behind the scenes; there is no display countdown or extra display timer. Only
+  completed outcomes, including an exhausted retry chain, replace this message.
+  Active lyrics and their layout are unchanged.
 
 - One exact LRCLIB lookup precedes at most one structured search when needed.
   There is a 300 ms pause before that fallback, following LRCLIB's request-spacing
