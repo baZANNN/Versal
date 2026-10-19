@@ -204,3 +204,69 @@ test("refresh and visibility changes cannot bypass Spotify's Retry-After", async
     assert.equal(calls, 3, "polling resumes only after the full deadline");
   } finally { app.cleanup(); }
 });
+
+test("repeated one-second cooldowns back off and stop; refresh can recover the same song", async () => {
+  let calls = 0, recover = false;
+  const app = harness(async (url) => {
+    if (url === "/api/spotify/now-playing") return Response.json(playback("Song"));
+    calls++;
+    return recover ? Response.json(lyrics("Song")) : new Response(null, { status: 429, headers: { "Retry-After": "1" } });
+  });
+  try {
+    await app.advance(0);
+    assert.equal(calls, 1);
+    for (const delay of [1_000, 2_000, 4_000, 8_000, 16_000]) {
+      await app.advance(delay - 1);
+      const before = calls;
+      await app.advance(1);
+      assert.equal(calls, before + 1);
+    }
+    assert.equal(calls, 6);
+    assert.match(app.text(), /Tap ↻ to retry/);
+    await app.advance(60_000);
+    assert.equal(calls, 6, "playback ticks must not restart an exhausted retry chain");
+    recover = true;
+    await app.clickRefresh();
+    assert.equal(calls, 7);
+    assert.match(app.text(), /Song first lyric/);
+  } finally { app.cleanup(); }
+});
+
+test("a transient 503 recovers only after its provider deadline", async () => {
+  let calls = 0;
+  const app = harness(async (url) => {
+    if (url === "/api/spotify/now-playing") return Response.json(playback("Song"));
+    calls++;
+    return calls === 1 ? new Response(null, { status: 503, headers: { "Retry-After": "60" } }) : Response.json(lyrics("Song"));
+  });
+  try {
+    await app.advance(0);
+    assert.match(app.text(), /Retrying in 60 seconds/);
+    await app.advance(59_999);
+    assert.equal(calls, 1);
+    await app.advance(1);
+    assert.equal(calls, 2);
+    assert.match(app.text(), /Song first lyric/);
+  } finally { app.cleanup(); }
+});
+
+test("a song change aborts the superseded browser lyric request", async () => {
+  let song = "Alpha", signal;
+  const app = harness(async (url, options) => {
+    if (url === "/api/spotify/now-playing") return Response.json(playback(song));
+    if (new URL(url, "http://test").searchParams.get("track") === "Alpha") {
+      signal = options.signal;
+      return new Promise(() => {});
+    }
+    return Response.json(lyrics(song));
+  });
+  try {
+    await app.advance(0);
+    assert.equal(signal.aborted, false);
+    song = "Beta";
+    await app.advance(1_000);
+    assert.equal(signal.aborted, true);
+    assert.match(app.text(), /Beta first lyric/);
+  } finally { app.cleanup(); }
+});
+

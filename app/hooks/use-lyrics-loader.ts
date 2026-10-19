@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { parseLyrics, normalizeTrackTitle, selectLyricsRecord, type LyricLine } from "../lib/lyrics";
 import { LyricsRequests, LyricsRequestError } from "../lib/lyrics-request";
 import type { LyricsStatus } from "../lib/client-types";
-import { LYRICS_COOLDOWN_KEY, LYRICS_RETRY_DELAY_MS, LYRICS_MAX_AUTOMATIC_RETRIES } from "../lib/client-config";
+import { LYRICS_COOLDOWN_KEY, LYRICS_RETRY_DELAY_MS, LYRICS_MAX_AUTOMATIC_RETRIES, LYRICS_MAX_PROVIDER_RETRIES } from "../lib/client-config";
 
 /** Owns lookup/cache/retry state. Track identity plus a generation prevents stale results. */
 export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
@@ -17,6 +17,7 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
   const lyricsGenerationRef = useRef(0);
   const lyricsStatusRef = useRef<LyricsStatus>("idle");
   const lyricsRetryTimerRef = useRef(0);
+  const lyricsRequestRef = useRef<AbortController | null>(null);
 
   // Display-only clock. The existing retry scheduler remains the sole owner
   // of network timing, including hidden/offline and persisted cooldown checks.
@@ -40,6 +41,8 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
 
   function cancelLyrics() {
     lyricsGenerationRef.current += 1;
+    lyricsRequestRef.current?.abort();
+    lyricsRequestRef.current = null;
     window.clearTimeout(lyricsRetryTimerRef.current);
   }
 
@@ -56,6 +59,9 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
   ) {
     if (spotifyTrackRef.current !== identity) return;
     const generation = ++lyricsGenerationRef.current;
+    lyricsRequestRef.current?.abort();
+    const controller = new AbortController();
+    lyricsRequestRef.current = controller;
     const isCurrent = () => spotifyTrackRef.current === identity && lyricsGenerationRef.current === generation;
     window.clearTimeout(lyricsRetryTimerRef.current);
     setTrack({ title, artist: artists.join(", "), album: collection, source: "Spotify synced", duration: Math.max(1, duration) });
@@ -76,7 +82,7 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
         track: normalizeTrackTitle(title), artist: artists[0] || "Unknown artist",
         album: collection, duration: String(duration),
       });
-      const records = await lyricsRequestsRef.current.get(`/api/lyrics/search?${parameters}`, options.force);
+      const records = await lyricsRequestsRef.current.get(`/api/lyrics/search?${parameters}`, options.force, controller.signal);
       if (!isCurrent()) return;
       const record = selectLyricsRecord(records, title, artists, collection, duration);
       if (!record) throw new LyricsRequestError(404);
@@ -92,13 +98,18 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
     } catch (error) {
       if (!isCurrent()) return;
       setLines([]);
-      const coolingDown = error instanceof LyricsRequestError && error.status === 429;
-      updateLyricsStatus(coolingDown ? "cooldown" : error instanceof LyricsRequestError && error.status === 404 ? "missing" : "unavailable");
+      const coolingDown = error instanceof LyricsRequestError && error.retryAt > Date.now();
       const retryAttempt = options.retryAttempt ?? 0;
-      // A provider cooldown is not a failed song match. Resume after every deadline,
-      // even if the earlier one-shot network retry was already used.
-      if ((coolingDown || retryAttempt < LYRICS_MAX_AUTOMATIC_RETRIES) && !(error instanceof LyricsRequestError && [401, 404].includes(error.status))) {
-        const retryAt = coolingDown ? Math.max(Date.now() + 1_000, error.retryAt) : Date.now() + LYRICS_RETRY_DELAY_MS;
+      const canRetry = retryAttempt < (coolingDown ? LYRICS_MAX_PROVIDER_RETRIES : LYRICS_MAX_AUTOMATIC_RETRIES)
+        && !(error instanceof LyricsRequestError && [400, 401, 403, 404].includes(error.status));
+      updateLyricsStatus(coolingDown && canRetry ? "cooldown" : error instanceof LyricsRequestError && error.status === 404 ? "missing" : "unavailable");
+      // One bounded chain per song. Refresh can start another, but cannot bypass
+      // a persisted provider deadline. Playback ticks never restart the chain.
+      if (canRetry) {
+        // A repeated one-second edge response must not produce an endless
+        // one-second loop. Longer provider deadlines always take precedence.
+        const retryDelay = coolingDown ? Math.min(16_000, 1_000 * 2 ** retryAttempt) : LYRICS_RETRY_DELAY_MS;
+        const retryAt = Math.max(Date.now() + retryDelay, coolingDown ? error.retryAt : 0);
         setLyricsRetryAt(retryAt);
         setLyricsRetryRemainingSeconds(Math.max(0, Math.ceil((retryAt - Date.now()) / 1_000)));
         const retry = () => {
@@ -107,10 +118,12 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
             lyricsRetryTimerRef.current = window.setTimeout(retry, Math.min(2_147_483_647, Math.max(1_000, retryAt - Date.now())));
             return;
           }
-          void loadSpotifyLyrics(identity, title, artists, collection, duration, { force: true, retryAttempt: retryAttempt + 1 });
+          void loadSpotifyLyrics(identity, title, artists, collection, duration, { retryAttempt: retryAttempt + 1 });
         };
         lyricsRetryTimerRef.current = window.setTimeout(retry, Math.min(2_147_483_647, Math.max(1_000, retryAt - Date.now())));
       }
+    } finally {
+      if (lyricsRequestRef.current === controller) lyricsRequestRef.current = null;
     }
   }
 
@@ -126,3 +139,4 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
     cancelLyrics,
   };
 }
+

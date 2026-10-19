@@ -31,20 +31,30 @@ of the playback and lookup helpers. This reliability pass does not change CSS.
   the existing scheduler can proceed. Active lyrics and their layout are unchanged.
 
 - One exact LRCLIB lookup precedes at most one structured search when needed.
-  No third broad search is sent for a song. Any rate limit or provider outage
-  ends the sequence immediately.
+  There is a 300 ms pause before that fallback, following LRCLIB's request-spacing
+  guidance. No third broad search is sent for a song. Any rate limit or provider
+  outage ends the sequence immediately.
 - In-flight requests are shared. Successful results remain cached for thirty
   minutes (up to fifty entries); empty results expire after five minutes.
 - Each song lookup has a generation guard, including A → B → A transitions.
-  An old response cannot replace the latest song's metadata or lyrics.
-- Transient non-throttle failures receive at most one automatic retry per lookup;
-  confirmed misses and authentication failures are not automatically retried. Provider
-  429s resume after each cooldown instead of exhausting that retry and getting
-  stuck. Retry-After persists across reloads and cannot be bypassed with manual
-  refresh. The server honors valid provider deadlines without additional backoff.
+  An old response cannot replace the latest song's metadata or lyrics. Superseded
+  browser requests are aborted. An aborted pending request is not reused when
+  returning to the same song; completed cached results retain their normal TTL.
+- Transient failures without a provider deadline receive at most one automatic
+  retry per lookup. Invalid requests, confirmed misses, and authentication failures
+  are not automatically retried. Both 429 and 503 Retry-After deadlines survive
+  the proxy and are honored by the browser, including manual refresh and reloads.
+  A provider deadline allows at most five automatic retries for the current song.
+  Short repeated waits also use a 1, 2, 4, 8, then 16-second delay, always waiting
+  longer if the provider requires it. This bounds a one-second retry storm while
+  still allowing recovery. After exhaustion, the status says to tap the existing
+  refresh control; a new track or manual refresh starts a new bounded chain.
+  Playback polling never silently restarts an exhausted chain.
+  The server honors valid provider deadlines without additional backoff.
   Only missing/invalid Retry-After values use 30, 60, 120, 240, then 300 seconds of
-  fallback backoff. The browser follows the server deadline without multiplying
-  it or imposing the ordinary 12-second network-retry delay. Existing persisted
+  fallback backoff. The browser treats the server deadline as the minimum wait;
+  it does not multiply long provider waits or impose the ordinary 12-second
+  network-retry delay on a brief provider deadline. Existing persisted
   deadlines from older releases are retained because their provenance is unknown.
 - Structured lyrics_cooldown logs distinguish actual upstream 429s from a local
   cooldown gate. Upstream entries include the original Retry-After (bounded to
@@ -72,6 +82,15 @@ history, while adopting the same useful separation of playback, lookup, and disp
 Its optional Genius fallback was not copied: it adds service dependencies and
 cannot supply missing line timestamps. LRCLIB remains Versal's lyrics source.
 
+The October 18 comparison used reference tree
+`37c2097347f720a7b0170c7d3d7f7d1c19d035fc`. Both applications fetch lyrics on
+the server. The reference keeps completed lyric promises, including misses, for
+the browser session instead of issuing an unlimited automatic network retry loop.
+Versal retains its bounded cache and structured fallback, with bounded recovery
+and cancellation of superseded browser requests. A live diagnostic also observed
+LRCLIB returning 503 with Retry-After, then succeeding on a later request; such a
+response must not be flattened to a generic 502 with its deadline discarded.
+
 ## Validation
 
 `npm test` builds and runs the application-shell, clock, parser, provider, and
@@ -86,3 +105,4 @@ imported libraries without including downloaded reference code or Worker types.
 The starter's repository-wide TypeScript configuration lacks a
 `cloudflare:workers` ambient declaration. Only the scoped client check is claimed;
 production build and Worker-render tests provide separate validation.
+

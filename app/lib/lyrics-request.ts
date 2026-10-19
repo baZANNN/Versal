@@ -25,11 +25,12 @@ export class LyricsRequestError extends Error {
   }
 }
 
-type Entry = { promise: Promise<unknown[]>; pending: boolean; expiresAt: number };
+type Entry = { promise: Promise<unknown[]>; pending: boolean; expiresAt: number; signal?: AbortSignal };
 
 export class LyricsRequests {
   private cache = new Map<string, Entry>();
   private cooldown = 0;
+  private cooldownStatus = 429;
   constructor(
     private fetcher: typeof fetch = fetch,
     private now = Date.now,
@@ -37,24 +38,27 @@ export class LyricsRequests {
     private writeCooldown = (_deadline: number) => {},
   ) {}
 
-  async get(url: string, force = false): Promise<unknown[]> {
+  async get(url: string, force = false, signal?: AbortSignal): Promise<unknown[]> {
     const cached = this.cache.get(url);
-    if (cached && (cached.pending || (!force && cached.expiresAt > this.now()))) return cached.promise;
+    if (cached && (cached.pending ? !cached.signal?.aborted : !force && cached.expiresAt > this.now())) return cached.promise;
     const deadline = Math.max(this.cooldown, this.readCooldown());
-    if (deadline > this.now()) throw new LyricsRequestError(429, deadline);
+    if (deadline > this.now()) throw new LyricsRequestError(this.cooldownStatus, deadline);
 
-    const entry: Entry = { promise: Promise.resolve([]), pending: true, expiresAt: 0 };
+    const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000);
+    const entry: Entry = { promise: Promise.resolve([]), pending: true, expiresAt: 0, signal: requestSignal };
     // Native browser fetch rejects an arbitrary object as its receiver.
     // Call the injected function directly, not as a LyricsRequests method.
     const fetcher = this.fetcher;
-    entry.promise = fetcher(url, { cache: force ? "reload" : "default", signal: AbortSignal.timeout(20_000) })
+    entry.promise = fetcher(url, { cache: force ? "reload" : "default", signal: requestSignal })
       .then(async (response) => {
-        if (response.status === 429) {
+        const retryAt = lyricsRetryDeadline(response.headers.get("Retry-After"), this.now());
+        if (response.status === 429 || (response.status === 503 && retryAt !== null)) {
           // The server already owns backoff. Never multiply its remaining wait.
           const now = this.now();
-          this.cooldown = Math.max(this.cooldown, lyricsRetryDeadline(response.headers.get("Retry-After"), now) ?? now + 30_000);
+          this.cooldownStatus = response.status;
+          this.cooldown = Math.max(this.cooldown, retryAt ?? now + 30_000);
           this.writeCooldown(this.cooldown);
-          throw new LyricsRequestError(429, this.cooldown);
+          throw new LyricsRequestError(response.status, this.cooldown);
         }
         if (!response.ok) throw new LyricsRequestError(response.status);
         const records: unknown = await response.json();
@@ -74,3 +78,4 @@ export class LyricsRequests {
     return entry.promise;
   }
 }
+

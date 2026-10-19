@@ -16,6 +16,7 @@ export const SPOTIFY_FOLLOWER_POLL_MS = 10_000;
 export const SPOTIFY_ERROR_POLL_MS = 60_000;
 export const LYRICS_RETRY_DELAY_MS = 12_000;
 export const LYRICS_MAX_AUTOMATIC_RETRIES = 1;
+export const LYRICS_MAX_PROVIDER_RETRIES = 5;
 export const FONT_SCALES = [0.82, 1, 1.18] as const;
 export const FOCUS_ZOOMS = [1.08, 1.25, 1.45] as const;
 export const VISIBILITY_MODES: Array<{ value: VisibilityMode; label: string }> = [
@@ -38,3 +39,4 @@ export const ACCENT_OPTIONS = [
   { color: "#c3a6ff", label: "Night violet" },
   { color: "#f4e8d1", label: "Soft ivory" },
 ];
+

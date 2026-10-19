@@ -288,3 +288,69 @@ test("a transient token refresh error is not treated as a revoked login", async 
   response = new Response(null, { status: 429, headers: { "Retry-After": "60" } });
   await assert.rejects(spotify.validSpotifySession(request), (error) => error.status === 429 && error.retryAfter === "60");
 });
+
+test("LRCLIB preserves a 503 Retry-After and does not attempt a fallback during it", async () => {
+  let calls = 0;
+  const response = await lookupLrclib(query, async () => {
+    calls++;
+    return new Response("Service warming up", { status: 503, headers: { "Retry-After": "60" } });
+  });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("Retry-After"), "60");
+  assert.equal(response.headers.get("X-Lyrics-Upstream-Status"), "503");
+  assert.equal(calls, 1);
+});
+
+test("a 503 deadline is shared by the Worker and browser, including forced requests", async () => {
+  let now = 1_000, calls = 0, saved = 0;
+  const service = new LrclibService(async () => {
+    calls++;
+    return calls === 1 ? new Response(null, { status: 503, headers: { "Retry-After": "60" } }) : Response.json(record());
+  }, () => now, () => {});
+  const loader = new LyricsRequests(() => service.get(query), () => now, () => saved, (deadline) => { saved = deadline; });
+  await assert.rejects(loader.get("/song"), (error) => error.status === 503 && error.retryAt === 61_000);
+  now = 60_999;
+  await assert.rejects(loader.get("/song", true), (error) => error.retryAt === 61_000);
+  assert.equal((await service.get({ ...query, track: "Another song" })).status, 503);
+  assert.equal(calls, 1);
+  now = 61_000;
+  assert.deepEqual(await loader.get("/song"), [record()]);
+  assert.equal(calls, 2);
+});
+
+test("the structured fallback waits 300 ms after the exact miss", async () => {
+  const events = [];
+  const response = await lookupLrclib(query, async (url) => {
+    events.push(url.pathname);
+    return url.pathname.endsWith("/get") ? new Response(null, { status: 404 }) : Response.json([record()]);
+  }, async (milliseconds) => { events.push(milliseconds); });
+  assert.equal(response.status, 200);
+  assert.deepEqual(events, ["/api/get", 300, "/api/search"]);
+});
+
+test("a cancelled pending lookup cannot poison a new lookup for the same URL", async () => {
+  let calls = 0, finishOld;
+  const controller = new AbortController();
+  const loader = new LyricsRequests(async () => {
+    calls++;
+    return calls === 1 ? new Promise((resolve) => { finishOld = resolve; }) : Response.json([record()]);
+  });
+  const old = loader.get("/song", false, controller.signal);
+  controller.abort();
+  assert.deepEqual(await loader.get("/song"), [record()]);
+  finishOld(new Response(null, { status: 502 }));
+  await assert.rejects(old);
+  assert.deepEqual(await loader.get("/song"), [record()]);
+  assert.equal(calls, 2, "late failure must not delete the newer cached result");
+});
+
+test("an expired request signal does not invalidate successfully cached lyrics", async () => {
+  let calls = 0;
+  const controller = new AbortController();
+  const loader = new LyricsRequests(async () => { calls++; return Response.json([record()]); });
+  await loader.get("/song", false, controller.signal);
+  controller.abort();
+  assert.deepEqual(await loader.get("/song"), [record()]);
+  assert.equal(calls, 1, "request lifetime and result-cache lifetime are independent");
+});
+

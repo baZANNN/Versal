@@ -105,7 +105,7 @@ npm run typecheck:client
 npm test
 ```
 
-`npm test` builds the Worker and runs 39 tests with synthetic lyrics, mocked
+`npm test` builds the Worker and runs 47 tests with synthetic lyrics, mocked
 requests, and a fake clock. It covers parsing, matching, cooldowns, stale song
 responses, pauses, podcasts, saved settings, cleanup, and the rendered application
 shell without consuming Spotify quota.
@@ -130,3 +130,4 @@ Genius integration is not included.
 Versal's code is available under the [MIT license](LICENSE). Dependencies retain
 their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 The source license does not grant rights to song lyrics or Spotify's branding.
+

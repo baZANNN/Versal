@@ -505,7 +505,7 @@ export function useSpotifyPlayback() {
   const lyricsLookupPending = !!track.title && ["loading", "cooldown", "unavailable"].includes(lyricsStatus);
   const lyricsLookupCopy = lyricsStatus === "loading" ? "Finding lyrics…"
     : lyricsRetryAt > 0 ? (lyricsRetryRemainingSeconds > 0 ? `Retrying in ${lyricsRetryRemainingSeconds} seconds…` : "Waiting to retry…")
-    : "Lyrics temporarily unavailable.";
+    : "Lyrics temporarily unavailable. Tap ↻ to retry.";
   const lyricsLookupAnnouncement = lyricsStatus === "loading" ? "Finding lyrics"
     : lyricsRetryAt > 0 ? "Lyrics will retry automatically" : "Lyrics temporarily unavailable";
 
@@ -539,3 +539,4 @@ export function useSpotifyPlayback() {
 }
 
 export type SpotifyPlayback = ReturnType<typeof useSpotifyPlayback>;
+

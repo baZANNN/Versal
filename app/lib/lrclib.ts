@@ -2,21 +2,27 @@ import { selectLyricsRecord } from "./lyrics";
 import { lyricsRetryDeadline } from "./lyrics-request";
 
 type Query = { track: string; artist: string; album: string; duration: number; query?: string };
+type Wait = (milliseconds: number) => Promise<void>;
+const wait: Wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 // Each fallback is tried at most once. A throttle or outage ends the sequence immediately.
-export async function lookupLrclib(query: Query, fetcher: typeof fetch = fetch) {
+export async function lookupLrclib(query: Query, fetcher: typeof fetch = fetch, pause: Wait = wait) {
   const signal = AbortSignal.timeout(15_000);
   const request = (path: string, parameters: Record<string, string>) => {
     const url = new URL(`https://lrclib.net/api/${path}`);
     for (const [key, value] of Object.entries(parameters)) if (value) url.searchParams.set(key, value);
-    return fetcher(url, { signal, headers: { "User-Agent": "Versal", "Lrclib-Client": "Versal/1.3", Accept: "application/json" } });
+    return fetcher(url, { signal, headers: { "User-Agent": "Versal/1.4 (https://github.com/baZANNN/Versal)", "Lrclib-Client": "Versal/1.4", Accept: "application/json" } });
   };
   const result = (records: unknown[]) => Response.json(records.slice(0, 20), {
     headers: { "Cache-Control": records.length ? "private, max-age=300" : "no-store" },
   });
-  const failure = (response: Response) => response.status === 429
-    ? Response.json({ error: "Lyrics provider is cooling down." }, { status: 429, headers: { ...(response.headers.has("Retry-After") ? { "Retry-After": response.headers.get("Retry-After")! } : {}), "Cache-Control": "no-store" } })
-    : Response.json({ error: "Lyrics provider is temporarily unavailable." }, { status: 502, headers: { "Cache-Control": "no-store" } });
+  const failure = (response: Response) => Response.json({ error: "Lyrics provider is temporarily unavailable." }, {
+    status: response.status === 429 || response.status === 503 ? response.status : 502,
+    headers: {
+      ...(response.headers.has("Retry-After") ? { "Retry-After": response.headers.get("Retry-After")! } : {}),
+      "X-Lyrics-Upstream-Status": String(response.status), "Cache-Control": "no-store",
+    },
+  });
   try {
     if (query.track && query.artist) {
       const exact = await request("get", {
@@ -27,6 +33,8 @@ export async function lookupLrclib(query: Query, fetcher: typeof fetch = fetch) 
         const record = selectLyricsRecord([await exact.json()], query.track, [query.artist], query.album, query.duration);
         if (record) return result([record]);
       } else if (exact.status !== 404) return failure(exact);
+      // LRCLIB asks clients to leave 200–500 ms between sequential requests.
+      await pause(300);
       const structured = await request("search", { track_name: query.track, artist_name: query.artist });
       if (!structured.ok) return failure(structured);
       const matches: unknown = await structured.json();
@@ -53,6 +61,7 @@ export class LrclibService {
   private pending = new Map<string, Promise<LookupResult>>();
   private cooldown = 0;
   private missingDeadlineCount = 0;
+  private cooldownStatus = 429;
   constructor(
     private fetcher: typeof fetch = fetch,
     private now = Date.now,
@@ -63,7 +72,7 @@ export class LrclibService {
     const seconds = Math.max(1, Math.ceil((this.cooldown - this.now()) / 1_000));
     this.log({ event: "lyrics_cooldown", source: "local-gate", upstreamRequested: false, waitSeconds: seconds, retryAt: this.cooldown });
     return Response.json({ error: "Lyrics lookup is waiting before retrying." }, {
-      status: 429, headers: { "Retry-After": String(seconds), "X-Lyrics-Retry-Source": "local-gate", "Cache-Control": "no-store" },
+      status: this.cooldownStatus, headers: { "Retry-After": String(seconds), "X-Lyrics-Retry-Source": "local-gate", "Cache-Control": "no-store" },
     });
   }
 
@@ -78,20 +87,21 @@ export class LrclibService {
       // Pass the fetch function as a standalone callback; never invoke it with this instance.
       pending = lookupLrclib(query, this.fetcher).then(async (response) => {
         const result = { body: await response.text(), status: response.status, headers: Object.fromEntries(response.headers.entries()) };
-        if (response.status === 429) {
+        const providerDeadline = lyricsRetryDeadline(response.headers.get("Retry-After"), this.now());
+        if (response.status === 429 || (response.status === 503 && providerDeadline !== null)) {
           const now = this.now();
           const header = response.headers.get("Retry-After");
-          const providerDeadline = lyricsRetryDeadline(header, now);
           const source = providerDeadline === null ? "fallback" : "provider";
           // Escalate only when LRCLIB supplies no usable deadline. A valid
           // provider wait is authoritative, even after earlier throttles.
           const deadline = providerDeadline ?? now + Math.min(300_000, 30_000 * 2 ** Math.min(this.missingDeadlineCount++, 4));
           if (providerDeadline !== null) this.missingDeadlineCount = 0;
+          this.cooldownStatus = response.status;
           this.cooldown = Math.max(this.cooldown, deadline);
           const seconds = Math.ceil((this.cooldown - now) / 1_000);
           result.headers["retry-after"] = String(seconds);
           result.headers["x-lyrics-retry-source"] = source;
-          this.log({ event: "lyrics_cooldown", source, upstreamRequested: true, upstreamStatus: 429,
+          this.log({ event: "lyrics_cooldown", source, upstreamRequested: true, upstreamStatus: response.status,
             providerRetryAfter: header?.slice(0, 128) ?? null, providerRetryAt: providerDeadline,
             waitSeconds: seconds, retryAt: this.cooldown });
         } else if (response.ok) {
@@ -114,3 +124,4 @@ export class LrclibService {
     return new Response(result.body, { status: result.status, headers: result.headers });
   }
 }
+
