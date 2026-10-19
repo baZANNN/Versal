@@ -224,7 +224,7 @@ test("repeated one-second cooldowns back off and stop; refresh can recover the s
       assert.equal(calls, before + 1);
     }
     assert.equal(calls, 6);
-    assert.match(app.text(), /Tap ↻ to retry/);
+    assert.match(app.text(), /Use refresh to retry/);
     await app.advance(60_000);
     assert.equal(calls, 6, "playback ticks must not restart an exhausted retry chain");
     recover = true;

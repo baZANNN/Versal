@@ -2,7 +2,11 @@
 
 Versal remains a Spotify-only lyrics display. Its centered active-line layer,
 context lines, palettes, fonts, and persistent display preferences are independent
-of the playback and lookup helpers. This reliability pass does not change CSS.
+of the playback and lookup helpers. Icon compatibility fixes do not change lyric styling.
+
+The refresh control uses an explicitly sized inline SVG, not a font character, so
+all display typefaces share the same icon. Only the arrow rotates while syncing;
+the button frame stays fixed, and reduced-motion preferences disable rotation.
 
 ## Playback
 
@@ -143,3 +147,4 @@ imported libraries without including downloaded reference code or Worker types.
 The starter's repository-wide TypeScript configuration lacks a
 `cloudflare:workers` ambient declaration. Only the scoped client check is claimed;
 production build and Worker-render tests provide separate validation.
+

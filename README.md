@@ -111,7 +111,7 @@ npm run typecheck:client
 npm test
 ```
 
-`npm test` builds the Worker and runs 58 tests with synthetic lyrics, mocked
+`npm test` builds the Worker and runs 61 tests with synthetic lyrics, mocked
 requests, and a fake clock. It covers parsing, matching, cooldowns, stale song
 responses, pauses, podcasts, saved settings, cleanup, and the rendered application
 shell without consuming Spotify quota. Direct-transport tests also verify
