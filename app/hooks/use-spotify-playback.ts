@@ -16,6 +16,10 @@ import {
   SPOTIFY_TRANSITION_POLL_MS,
   SPOTIFY_IDLE_POLL_MS,
   SPOTIFY_FOLLOWER_POLL_MS,
+  SPOTIFY_EMPTY_GRACE_MS,
+  SPOTIFY_EMPTY_QUICK_CHECKS,
+  SPOTIFY_RECOVERY_RETRY_MS,
+  SPOTIFY_RECOVERY_MAX_RETRY_MS,
 } from "../lib/client-config";
 import { useLyricsLoader } from "./use-lyrics-loader";
 
@@ -49,6 +53,9 @@ export function useSpotifyPlayback() {
   const spotifyNowRef = useRef<SpotifyNowPlaying["item"]>(null);
   const spotifyPlayingRef = useRef<boolean | null>(null);
   const spotifyTransitionChecksRef = useRef(0);
+  const spotifyFailureCountRef = useRef(0);
+  const spotifyEmptySinceRef = useRef<number | null>(null);
+  const spotifyEmptyChecksRef = useRef(0);
 
   const {
     track,
@@ -293,6 +300,18 @@ export function useSpotifyPlayback() {
     }
   }
 
+  function recoverSpotifyPlayback() {
+    // A transient network/API failure is not a provider-requested cooldown.
+    // Retry promptly at first, then back off instead of waiting a full minute.
+    const delay = Math.min(SPOTIFY_RECOVERY_MAX_RETRY_MS,
+      SPOTIFY_RECOVERY_RETRY_MS * 2 ** Math.min(spotifyFailureCountRef.current++, 3));
+    spotifyBackoffUntilRef.current = Date.now() + delay;
+    spotifyPollDelayRef.current = delay;
+    setSpotifyAvailability("unavailable");
+    setSpotifyError("Spotify is temporarily unavailable. Versal will keep trying.");
+    pauseClock();
+  }
+
   function applySpotifySnapshot(media: SpotifyNowPlaying, status: number, retryAfterSeconds?: number, forceClockSync = false) {
     setSpotifyChecked(true);
     if (status === 401) {
@@ -342,21 +361,36 @@ export function useSpotifyPlayback() {
       return;
     }
     if (status < 200 || status >= 300) {
-      spotifyBackoffUntilRef.current = Date.now() + SPOTIFY_ERROR_POLL_MS;
-      spotifyPollDelayRef.current = SPOTIFY_ERROR_POLL_MS;
-      setSpotifyAvailability("unavailable");
-      setSpotifyError("Spotify is temporarily unavailable.");
-      pauseClock();
+      recoverSpotifyPlayback();
       return;
     }
     spotifyThrottleCountRef.current = 0;
+    spotifyFailureCountRef.current = 0;
     spotifyDisconnectedRef.current = false;
     clearSpotifyCooldown();
     setSpotifyError("");
     const item = media.item || null;
-    spotifyNowRef.current = item;
-    setSpotifyNow(item);
-    if (item?.type === "track" && item.title && item.artist) {
+    const usableTrack = item?.type === "track" && item.title && item.artist
+      && Number.isFinite(item.durationMs) && item.durationMs > 0;
+    const incompleteSample = !item || ((!item.type || item.type === "track") && !usableTrack);
+    if (incompleteSample) {
+      spotifyEmptySinceRef.current ??= Date.now();
+      if (Date.now() - spotifyEmptySinceRef.current < SPOTIFY_EMPTY_GRACE_MS) {
+        // Spotify can briefly return 204/null or incomplete metadata during a
+        // handoff/skip. Keep the last song, but freeze its clock until confirmed.
+        spotifyPollDelayRef.current = spotifyEmptyChecksRef.current++ < SPOTIFY_EMPTY_QUICK_CHECKS
+          ? SPOTIFY_TRANSITION_POLL_MS : SPOTIFY_PLAYING_POLL_MS;
+        setSpotifyAvailability(spotifyTrackRef.current ? "unavailable" : "idle");
+        pauseClock();
+        return;
+      }
+    } else {
+      spotifyEmptySinceRef.current = null;
+      spotifyEmptyChecksRef.current = 0;
+    }
+    spotifyNowRef.current = incompleteSample ? null : item;
+    setSpotifyNow(spotifyNowRef.current);
+    if (item?.type === "track" && usableTrack) {
       const duration = Math.max(1, item.durationMs / 1000);
       const remainingMs = Math.max(0, item.durationMs - Number(media.positionMs || 0));
       setSpotifyAvailability("ready");
@@ -388,7 +422,7 @@ export function useSpotifyPlayback() {
         void loadSpotifyLyrics(identity, item.title, item.artists?.length ? item.artists : [item.artist], item.collection, duration);
       }
     } else {
-      spotifyPollDelayRef.current = item ? SPOTIFY_PLAYING_POLL_MS : SPOTIFY_IDLE_POLL_MS;
+      spotifyPollDelayRef.current = incompleteSample ? SPOTIFY_IDLE_POLL_MS : SPOTIFY_PLAYING_POLL_MS;
       spotifyPlayingRef.current = false;
       spotifyTransitionChecksRef.current = 0;
       setSpotifyAvailability("idle");
@@ -427,11 +461,7 @@ export function useSpotifyPlayback() {
       broadcastSpotifySnapshot(media, response.status, retryAfterSeconds);
     } catch {
       if (controller.signal.aborted && controller.signal.reason !== "timeout") return;
-      spotifyBackoffUntilRef.current = Date.now() + SPOTIFY_ERROR_POLL_MS;
-      spotifyPollDelayRef.current = SPOTIFY_ERROR_POLL_MS;
-      setSpotifyAvailability("unavailable");
-      setSpotifyError("Spotify is temporarily unavailable. Versal will keep trying.");
-      pauseClock();
+      recoverSpotifyPlayback();
       broadcastSpotifySnapshot({ connected: spotifySessionConnectedRef.current, error: "spotify-api-error" }, 502);
     } finally {
       window.clearTimeout(timeout);
@@ -457,6 +487,9 @@ export function useSpotifyPlayback() {
     clearSpotifyCooldown();
     spotifyThrottleCountRef.current = 0;
     spotifyTransitionChecksRef.current = 0;
+    spotifyFailureCountRef.current = 0;
+    spotifyEmptySinceRef.current = null;
+    spotifyEmptyChecksRef.current = 0;
     clearTrack();
     broadcastSpotifySnapshot({ connected: false }, 401);
   }

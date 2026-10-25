@@ -153,11 +153,14 @@ npm run typecheck:client
 npm test
 ```
 
-`npm test` builds the Worker and runs 61 tests with synthetic lyrics, mocked
+`npm test` builds the Worker and runs 74 tests with synthetic lyrics, mocked
 requests, and a fake clock. It covers parsing, matching, cooldowns, stale song
 responses, pauses, podcasts, saved settings, cleanup, and the rendered application
 shell without consuming Spotify quota. Direct-transport tests also verify
 credential isolation, cancellation, cache reuse, and provider cooldown handling.
+Playback-recovery tests cover empty/incomplete samples, retained lyrics, bounded
+quick retries, and recovery without bypassing rate limits. Route tests verify
+privacy-safe diagnostics and normalization of incomplete Spotify metadata.
 
 The client typecheck covers the page, hooks, components, and imported libraries.
 It is not a complete Worker/server typecheck. Real audio alignment and vehicle

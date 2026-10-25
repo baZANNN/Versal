@@ -47,10 +47,10 @@ test("keeps Daylight crisp and playback detection responsive", async () => {
   assert.match(page, /SPOTIFY_PLAYING_POLL_MS = 3_000/);
   assert.match(page, /SPOTIFY_PAUSED_POLL_MS = 3_000/);
   assert.match(page, /SPOTIFY_TRANSITION_POLL_MS = 1_000/);
-  assert.match(page, /SPOTIFY_IDLE_POLL_MS = 30_000/);
+  assert.match(page, /SPOTIFY_IDLE_POLL_MS = 10_000/);
   assert.match(page, /SPOTIFY_LEADER_LEASE_MS = 45_000/);
   assert.match(page, /remainingMs \+ 500/);
-  assert.match(page, /LYRICS_RETRY_DELAY_MS = 12_000/);
+  assert.match(page, /LYRICS_RETRY_DELAY_MS = 3_000/);
   assert.match(page, /LYRICS_MAX_AUTOMATIC_RETRIES = 1/);
   assert.match(page, /type FontStyle = "modern" \| "editorial" \| "rounded" \| "humanist" \| "mono"/);
   assert.match(page, /FONT_STYLES\.map/);

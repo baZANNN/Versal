@@ -13,6 +13,19 @@ the button frame stays fixed, and reduced-motion preferences disable rotation.
 - Visible, connected playback is checked every three seconds, including pauses.
   Two brief one-second checks follow a detected track/play-state transition; an
   additional check is scheduled near the known track end.
+- An empty or incomplete Spotify sample is not immediately treated as a stopped
+  session. For twelve seconds, the previous song and lyrics remain available but
+  their clock is frozen. Two one-second recovery checks are followed by normal
+  three-second checks. Consistent empty playback then clears the song and checks
+  every ten seconds; a confirmed podcast clears music lyrics immediately.
+- Temporary playback HTTP/network failures retry after 5, 10, 20, then at most
+  30 seconds, resetting after a successful sample. They no longer impose a
+  one-minute blind spot after a single failure. Provider-requested cooldowns and
+  sign-in failures remain separate and cannot be bypassed by these checks.
+- Empty upstream responses produce `spotify_playback_empty` server logs with
+  status, item presence, type, and metadata-presence booleans only. Track names,
+  artists, IDs, account details, and tokens are not logged. Incomplete tracks are
+  normalized to empty samples, not invented `Unknown title` lyric lookups.
 - External skips and pauses are discovered by polling, not push notifications.
   Three seconds is a scheduling target, not a guaranteed latency bound: network
   delays, Spotify state propagation, and provider cooldowns can extend it.
@@ -62,7 +75,8 @@ the button frame stays fixed, and reduced-motion preferences disable rotation.
   browser requests are aborted. An aborted pending request is not reused when
   returning to the same song; completed cached results retain their normal TTL.
 - Transient failures without a provider deadline receive at most one automatic
-  retry per lookup. Invalid requests, confirmed misses, and authentication failures
+  retry after three seconds per lookup (previously twelve seconds). Invalid
+  requests, confirmed misses, and authentication failures
   are not automatically retried. Both 429 and 503 Retry-After deadlines are
   honored by the browser, including manual refresh and reloads. The retained
   server endpoint also preserves them.
@@ -76,7 +90,7 @@ the button frame stays fixed, and reduced-motion preferences disable rotation.
   Only missing/invalid Retry-After values use 30, 60, 120, 240, then 300 seconds of
   fallback backoff. Direct browser requests use the same fallback sequence when
   a 429 has no usable deadline. The browser treats any deadline as the minimum wait;
-  it does not multiply long provider waits or impose the ordinary 12-second
+  it does not multiply long provider waits or impose the ordinary three-second
   network-retry delay on a brief provider deadline. Existing persisted
   deadlines from older releases are retained because their provenance is unknown.
 - For the retained server endpoint, structured lyrics_cooldown logs distinguish actual upstream 429s from a local
@@ -104,6 +118,17 @@ more conservative three-second regular cadence given the account's rate-limit
 history, while adopting the same useful separation of playback, lookup, and display.
 Its optional Genius fallback was not copied: it adds service dependencies and
 cannot supply missing line timestamps. LRCLIB remains Versal's lyrics source.
+
+The October 24 review reconfirmed the same reference tree. Its fixed one-second
+checks avoid the long recovery gaps that Versal previously imposed after empty
+or failed playback responses. Versal now uses bounded prompt recovery checks,
+while retaining the normal three-second cadence and provider cooldown gates.
+The reference also clears lyrics on an empty sample; Versal's twelve-second
+grace is an independent improvement, not behavior attributed to the reference.
+Regression tests reproduced the previous mid-song empty-page transition and
+minute-long error wait. Production HTTP 200 logs alone cannot prove which
+responses had missing track data; the new boolean-only diagnostics help
+distinguish that condition without collecting listener metadata.
 
 The October 18 comparison used reference tree
 `37c2097347f720a7b0170c7d3d7f7d1c19d035fc`. At that baseline both applications
@@ -147,4 +172,3 @@ imported libraries without including downloaded reference code or Worker types.
 The starter's repository-wide TypeScript configuration lacks a
 `cloudflare:workers` ambient declaration. Only the scoped client check is claimed;
 production build and Worker-render tests provide separate validation.
-

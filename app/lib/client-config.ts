@@ -11,10 +11,14 @@ export const SPOTIFY_PLAYING_POLL_MS = 3_000;
 export const SPOTIFY_PAUSED_POLL_MS = 3_000;
 export const SPOTIFY_TRANSITION_POLL_MS = 1_000;
 export const SPOTIFY_TRANSITION_CHECKS = 2;
-export const SPOTIFY_IDLE_POLL_MS = 30_000;
+export const SPOTIFY_IDLE_POLL_MS = 10_000;
+export const SPOTIFY_EMPTY_GRACE_MS = 12_000;
+export const SPOTIFY_EMPTY_QUICK_CHECKS = 2;
+export const SPOTIFY_RECOVERY_RETRY_MS = 5_000;
+export const SPOTIFY_RECOVERY_MAX_RETRY_MS = 30_000;
 export const SPOTIFY_FOLLOWER_POLL_MS = 10_000;
 export const SPOTIFY_ERROR_POLL_MS = 60_000;
-export const LYRICS_RETRY_DELAY_MS = 12_000;
+export const LYRICS_RETRY_DELAY_MS = 3_000;
 export const LYRICS_MAX_AUTOMATIC_RETRIES = 1;
 export const LYRICS_MAX_PROVIDER_RETRIES = 5;
 export const FONT_SCALES = [0.82, 1, 1.18] as const;
@@ -39,4 +43,3 @@ export const ACCENT_OPTIONS = [
   { color: "#c3a6ff", label: "Night violet" },
   { color: "#f4e8d1", label: "Soft ivory" },
 ];
-

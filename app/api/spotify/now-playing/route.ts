@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
       cache: "no-store",
     });
     if (spotifyResponse.status === 204) {
+      console.info(JSON.stringify({ event: "spotify_playback_empty", upstreamStatus: 204, itemPresent: false }));
       const response = NextResponse.json({ connected: true, playing: false, item: null });
       if (valid.changed) await persistSpotifySession(response, valid.session);
       return clearLegacyVehicleCookies(response);
@@ -78,12 +79,20 @@ export async function GET(request: NextRequest) {
     const artists = item?.type === "episode"
       ? [item.show?.publisher || item.show?.name || "Podcast"]
       : (item?.artists || []).map((entry) => entry.name).filter((name): name is string => Boolean(name));
+    const completeTrack = Boolean(item?.name && artists.length && Number.isFinite(item.duration_ms) && Number(item.duration_ms) > 0);
+    if (!item || (item.type !== "episode" && !completeTrack)) {
+      // Diagnose missing playback without logging songs, account data, or tokens.
+      console.info(JSON.stringify({ event: "spotify_playback_empty", upstreamStatus: spotifyResponse.status,
+        itemPresent: Boolean(item), itemType: item?.type || null, playing: Boolean(payload.is_playing),
+        hasTitle: Boolean(item?.name), hasArtist: artists.length > 0,
+        hasDuration: Number.isFinite(item?.duration_ms) && Number(item?.duration_ms) > 0 }));
+    }
     const response = NextResponse.json({
       connected: true,
       playing: Boolean(payload.is_playing),
       positionMs: Number(payload.progress_ms || 0),
       observedAt: Date.now(),
-      item: item ? {
+      item: item && (item.type === "episode" || completeTrack) ? {
         id: item.id || `${item.name || "unknown"}:${artists.join(",")}`,
         type: item.type || "track",
         title: item.name || "Unknown title",
