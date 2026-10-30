@@ -68,21 +68,28 @@ the button frame stays fixed, and reduced-motion preferences disable rotation.
   There is a 300 ms pause before that fallback, following LRCLIB's request-spacing
   guidance. No third broad search is sent for a song. Any rate limit or provider
   outage ends the sequence immediately.
-- In-flight requests are shared. Successful results remain cached for thirty
-  minutes (up to fifty entries); empty results expire after five minutes.
+- In-flight requests are shared. Successful results remain cached in memory for
+  thirty minutes; empty results expire after five minutes. A separate device-local
+  cache preserves up to fifty successful songs for seven days across reloads,
+  bounded to 500,000 serialized characters. It contains lyrics and song metadata,
+  never Spotify credentials. Corrupt, expired, or blocked storage falls back to
+  normal lookups. Cached lyrics can display during a provider cooldown without
+  making a request. Forced lookups still honor cooldowns. Misses and errors are
+  never persisted in this longer-lived cache.
 - Each song lookup has a generation guard, including A → B → A transitions.
   An old response cannot replace the latest song's metadata or lyrics. Superseded
   browser requests are aborted. An aborted pending request is not reused when
   returning to the same song; completed cached results retain their normal TTL.
-- Transient failures without a provider deadline receive at most one automatic
-  retry after three seconds per lookup (previously twelve seconds). Invalid
+- Transient failures without a provider deadline receive at most three automatic
+  retries, waiting 3, 6, then 12 seconds between attempts. Invalid
   requests, confirmed misses, and authentication failures
   are not automatically retried. Both 429 and 503 Retry-After deadlines are
   honored by the browser, including manual refresh and reloads. The retained
   server endpoint also preserves them.
   A provider deadline allows at most five automatic retries for the current song.
   Short repeated waits also use a 1, 2, 4, 8, then 16-second delay, always waiting
-  longer if the provider requires it. This bounds a one-second retry storm while
+  longer if the provider requires it. Small positive jitter (up to 30% of the wait,
+  capped at nine seconds) spreads retries after that deadline. This bounds a one-second retry storm while
   still allowing recovery. After exhaustion, the status says to tap the existing
   refresh control; a new track or manual refresh starts a new bounded chain.
   Playback polling never silently restarts an exhausted chain.
@@ -157,6 +164,22 @@ browser CORS support, the client-identification header, spacing, and Retry-After
 No API key, second lyric provider, faster Spotify polling, or credential exposure
 is introduced. Long-term reliability and Tesla-browser compatibility require
 real-device use after rollout.
+
+### Provider availability review (October 30)
+
+The October 30 review observed two real LRCLIB `503 ServerOverloaded` responses
+with `Retry-After: 1`. These were desktop diagnostic requests, not captured Tesla
+traffic, so they confirm provider overload but cannot explain every device failure.
+The reference still uses the same exact LRCLIB endpoint and no alternate transport
+on failure. Versal now preserves successful songs across reloads and allows a
+bounded longer recovery chain for transient network failures. Spotify polling and
+the active-line presentation are unchanged. Browser lyric loading uses standard
+AbortController timers and constructed JSON Responses, avoiding reliance on newer
+AbortSignal static methods or Response.json in embedded browsers. Timers and
+parent abort listeners are released on completion. Tests cover these changes,
+cooldown preservation, cache bounds/expiry, storage failures, and cancellation.
+Live browser inspection was unavailable because local browser use was disabled
+in Work settings; physical-device verification remains necessary.
 
 ## Validation
 

@@ -2,7 +2,7 @@ import { loadTypeScript } from "./load-typescript.mjs";
 
 // Render the real component's effects against a deterministic clock and mocked network.
 // No browser, Spotify credentials, or paid API requests are used by these checks.
-export function harness(fetcher, { page = "../app/page.tsx", storageEntries = [] } = {}) {
+export function harness(fetcher, { page = "../app/page.tsx", storageEntries = [], random = 0 } = {}) {
   let now = 1_000_000, cursor = 0, nextTimer = 0, tree;
   const slots = [], effects = [], timers = new Map(), storage = new Map(storageEntries), events = new Map();
   const hooks = {
@@ -35,7 +35,8 @@ export function harness(fetcher, { page = "../app/page.tsx", storageEntries = []
   const document = { hidden: false, addEventListener: browser.addEventListener, removeEventListener: browser.removeEventListener };
   const { default: Home } = loadTypeScript(page, { react: hooks }, {
     fetch: fetcher, window: browser, document, navigator: { onLine: true },
-    setTimeout: browser.setTimeout,
+    setTimeout: browser.setTimeout, clearTimeout: browser.clearTimeout,
+    Math: Object.assign(Object.create(Math), { random: () => random }),
     performance: { now: () => now }, Date: class extends Date { static now() { return now; } },
   });
   // Expand extracted presentational components without introducing another effect owner.

@@ -1,4 +1,5 @@
 import { selectLyricsRecord } from "./lyrics";
+import { requestDeadline, jsonResponse } from "./request-utils";
 
 export type LyricsQuery = { track: string; artist: string; album: string; duration: number; query?: string };
 type Wait = (milliseconds: number) => Promise<void>;
@@ -7,9 +8,10 @@ const wait: Wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve
 
 /** Shared matching/fallback rules; transport never changes after a provider failure. */
 export async function lookupLrclib(query: LyricsQuery, fetcher: typeof fetch = fetch, pause: Wait = wait, options: Options = {}) {
-  const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+  const scope = requestDeadline(15_000, options.signal);
+  const signal = scope.signal;
   const request = (path: string, parameters: Record<string, string>) => {
-    signal.throwIfAborted();
+    if (signal.aborted) throw signal.reason || new DOMException("Request cancelled", "AbortError");
     const url = new URL(`https://lrclib.net/api/${path}`);
     for (const [key, value] of Object.entries(parameters)) if (value) url.searchParams.set(key, value);
     return fetcher(url, {
@@ -18,14 +20,14 @@ export async function lookupLrclib(query: LyricsQuery, fetcher: typeof fetch = f
       headers: {
         // Browsers own User-Agent. LRCLIB documents this alternative client header.
         ...(!options.browser ? { "User-Agent": "Versal/1.4 (https://github.com/baZANNN/Versal)" } : {}),
-        "Lrclib-Client": "Versal/1.4", Accept: "application/json",
+        "Lrclib-Client": "Versal/1.4 (https://github.com/baZANNN/Versal)", Accept: "application/json",
       },
     });
   };
-  const result = (records: unknown[]) => Response.json(records.slice(0, 20), {
+  const result = (records: unknown[]) => jsonResponse(records.slice(0, 20), {
     headers: { "Cache-Control": records.length ? "private, max-age=300" : "no-store" },
   });
-  const failure = (response: Response) => Response.json({ error: "Lyrics provider is temporarily unavailable." }, {
+  const failure = (response: Response) => jsonResponse({ error: "Lyrics provider is temporarily unavailable." }, {
     status: response.status === 429 || response.status === 503 ? response.status : 502,
     headers: {
       ...(response.headers.has("Retry-After") ? { "Retry-After": response.headers.get("Retry-After")! } : {}),
@@ -58,6 +60,6 @@ export async function lookupLrclib(query: LyricsQuery, fetcher: typeof fetch = f
     return result(matches);
   } catch (error) {
     if (options.signal?.aborted) throw error;
-    return Response.json({ error: "Lyrics provider is temporarily unavailable." }, { status: 502, headers: { "Cache-Control": "no-store" } });
-  }
+    return jsonResponse({ error: "Lyrics provider is temporarily unavailable." }, { status: 502, headers: { "Cache-Control": "no-store" } });
+  } finally { scope.dispose(); }
 }

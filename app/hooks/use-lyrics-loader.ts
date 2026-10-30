@@ -4,6 +4,7 @@ import { useRef, useState, type RefObject } from "react";
 import { parseLyrics, normalizeTrackTitle, selectLyricsRecord, type LyricLine } from "../lib/lyrics";
 import { LyricsRequests, LyricsRequestError } from "../lib/lyrics-request";
 import { createBrowserLyricsFetcher } from "../lib/lrclib-browser";
+import { SavedLyricsCache } from "../lib/lyrics-cache";
 import type { LyricsStatus } from "../lib/client-types";
 import { LYRICS_COOLDOWN_KEY, LYRICS_RETRY_DELAY_MS, LYRICS_MAX_AUTOMATIC_RETRIES, LYRICS_MAX_PROVIDER_RETRIES } from "../lib/client-config";
 
@@ -61,7 +62,7 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
         } catch { return 0; }
       }, (deadline) => {
         try { window.localStorage.setItem(LYRICS_COOLDOWN_KEY, String(deadline)); } catch { /* Memory fallback is retained. */ }
-      });
+      }, new SavedLyricsCache(() => window.localStorage));
     }
     try {
       const parameters = new URLSearchParams({
@@ -94,8 +95,11 @@ export function useLyricsLoader(spotifyTrackRef: RefObject<string>) {
       if (canRetry) {
         // A repeated one-second edge response must not produce an endless
         // one-second loop. Longer provider deadlines always take precedence.
-        const retryDelay = coolingDown ? Math.min(16_000, 1_000 * 2 ** retryAttempt) : LYRICS_RETRY_DELAY_MS;
-        const retryAt = Math.max(Date.now() + retryDelay, coolingDown ? error.retryAt : 0);
+        const retryDelay = coolingDown ? Math.min(16_000, 1_000 * 2 ** retryAttempt) : LYRICS_RETRY_DELAY_MS * 2 ** retryAttempt;
+        const baseDelay = Math.max(retryDelay, coolingDown ? error.retryAt - Date.now() : 0);
+        // Spread provider retries without ever shortening Retry-After.
+        const jitter = coolingDown ? Math.floor(Math.random() * Math.min(baseDelay, 30_000) * 0.3) : 0;
+        const retryAt = Date.now() + baseDelay + jitter;
         setLyricsRetryAt(retryAt);
         const retry = () => {
           if (!isCurrent()) return;

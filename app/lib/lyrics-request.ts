@@ -1,3 +1,6 @@
+import { requestDeadline } from "./request-utils";
+import type { SavedLyricsCache } from "./lyrics-cache";
+
 export function retryDeadline(header: string | null, now: number, fallbackSeconds = 30) {
   const seconds = header?.trim() ? Number(header) : NaN;
   if (Number.isFinite(seconds) && seconds >= 0) return now + Math.max(1, Math.ceil(seconds)) * 1_000;
@@ -37,20 +40,27 @@ export class LyricsRequests {
     private now = Date.now,
     private readCooldown = () => 0,
     private writeCooldown = (_deadline: number) => {},
+    private saved?: SavedLyricsCache,
   ) {}
 
   async get(url: string, force = false, signal?: AbortSignal): Promise<unknown[]> {
     const cached = this.cache.get(url);
     if (cached && (cached.pending ? !cached.signal?.aborted : !force && cached.expiresAt > this.now())) return cached.promise;
+    const saved = !force && this.saved?.get(url);
+    if (saved) return saved;
     const deadline = Math.max(this.cooldown, this.readCooldown());
     if (deadline > this.now()) throw new LyricsRequestError(this.cooldownStatus, deadline);
 
-    const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000);
+    const scope = requestDeadline(20_000, signal);
+    const requestSignal = scope.signal;
     const entry: Entry = { promise: Promise.resolve([]), pending: true, expiresAt: 0, signal: requestSignal };
     // Native browser fetch rejects an arbitrary object as its receiver.
     // Call the injected function directly, not as a LyricsRequests method.
     const fetcher = this.fetcher;
-    entry.promise = fetcher(url, { cache: force ? "reload" : "default", signal: requestSignal })
+    entry.promise = (async () => {
+      if (requestSignal.aborted) throw requestSignal.reason || new DOMException("Request cancelled", "AbortError");
+      return fetcher(url, { cache: force ? "reload" : "default", signal: requestSignal });
+    })()
       .then(async (response) => {
         const retryAt = lyricsRetryDeadline(response.headers.get("Retry-After"), this.now());
         if (response.status === 429 || (response.status === 503 && retryAt !== null)) {
@@ -68,13 +78,14 @@ export class LyricsRequests {
         const records: unknown = await response.json();
         if (!Array.isArray(records)) throw new LyricsRequestError(502);
         entry.expiresAt = this.now() + (records.length ? 30 * 60_000 : 5 * 60_000);
+        this.saved?.put(url, records);
         return records;
       })
       .catch((error) => {
         if (this.cache.get(url) === entry) this.cache.delete(url);
         throw error;
       })
-      .finally(() => { entry.pending = false; });
+      .finally(() => { entry.pending = false; scope.dispose(); });
     this.cache.delete(url);
     this.cache.set(url, entry);
     // Bound memory during long drives. Pending requests still finish for their callers.

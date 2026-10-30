@@ -26,7 +26,7 @@ test("direct exact lookup uses the public provider and never forwards credential
   assert.equal(options.mode, "cors");
   assert.equal(options.referrerPolicy, "no-referrer");
   assert.equal(options.cache, "reload");
-  assert.deepEqual(options.headers, { "Lrclib-Client": "Versal/1.4", Accept: "application/json" });
+  assert.deepEqual(options.headers, { "Lrclib-Client": "Versal/1.4 (https://github.com/baZANNN/Versal)", Accept: "application/json" });
 });
 
 test("the browser's native fetch is called without an arbitrary receiver", async () => {

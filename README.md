@@ -153,7 +153,7 @@ npm run typecheck:client
 npm test
 ```
 
-`npm test` builds the Worker and runs 74 tests with synthetic lyrics, mocked
+`npm test` builds the Worker and runs 83 tests with synthetic lyrics, mocked
 requests, and a fake clock. It covers parsing, matching, cooldowns, stale song
 responses, pauses, podcasts, saved settings, cleanup, and the rendered application
 shell without consuming Spotify quota. Direct-transport tests also verify
@@ -161,6 +161,8 @@ credential isolation, cancellation, cache reuse, and provider cooldown handling.
 Playback-recovery tests cover empty/incomplete samples, retained lyrics, bounded
 quick retries, and recovery without bypassing rate limits. Route tests verify
 privacy-safe diagnostics and normalization of incomplete Spotify metadata.
+Lyric resilience tests cover the seven-day device cache, storage limits/failures,
+bounded retries, provider retry jitter, and older-browser request compatibility.
 
 The client typecheck covers the page, hooks, components, and imported libraries.
 It is not a complete Worker/server typecheck. Real audio alignment and vehicle
@@ -182,4 +184,3 @@ Genius integration is not included.
 Versal's code is available under the [MIT license](LICENSE). Dependencies retain
 their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 The source license does not grant rights to song lyrics or Spotify's branding.
-

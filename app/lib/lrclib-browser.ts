@@ -1,4 +1,5 @@
 import { lookupLrclib } from "./lrclib-lookup";
+import { jsonResponse } from "./request-utils";
 
 /**
  * Adapt the loader's stable song/cache URL to LRCLIB's public CORS API.
@@ -13,7 +14,7 @@ export function createBrowserLyricsFetcher(fetcher: typeof fetch = fetch, pause?
     const artist = params.get("artist")?.trim() || "";
     const album = params.get("album")?.trim() || "";
     if (url.pathname !== "/api/lyrics/search" || !track || !artist || [track, artist, album].some((value) => value.length > 500)) {
-      return Response.json({ error: "Invalid song details." }, { status: 400 });
+      return jsonResponse({ error: "Invalid song details." }, { status: 400 });
     }
     return lookupLrclib({ track, artist, album, duration: Number(params.get("duration") || 0) }, fetcher, pause, {
       browser: true, signal: init?.signal ?? undefined, cache: init?.cache,
